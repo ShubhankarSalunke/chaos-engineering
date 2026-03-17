@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Create Chaos Experiment</title>
+</head>
+<body>
+
+    <h2>Create Experiment</h2>
+
+    <form id="expForm">
+        <label>Agent ID:</label>
+        <input type="text" id="agent_id" required>
+        <br><br>
+
+        <label>Type:</label>
+        <select id="type">
+            <option value="container_kill">Container Kill</option>
+            <option value="memory_stress">Memory Stress</option>
+        </select>
+        <br><br>
+
+        <label>Target Container:</label>
+        <input type="text" id="target_container" value="demo-mono" required>
+        <br><br>
+
+        <label>Duration (seconds):</label>
+        <input type="number" id="duration" value="10" required>
+        <br><br>
+
+        <label>Memory (MB) [only for memory_stress]:</label>
+        <input type="number" id="memory_mb">
+        <br><br>
+
+        <button type="submit">Create Experiment</button>
+    </form>
+
+    <h3 id="response"></h3>
+
+<script>
+document.getElementById("expForm").addEventListener("submit", async function(e) {
+    e.preventDefault();
+
+    const type = document.getElementById("type").value;
+    const target_container = document.getElementById("target_container").value;
+    const duration = parseInt(document.getElementById("duration").value);
+    const memory_mb = document.getElementById("memory_mb").value;
+    const agent_id = document.getElementById("agent_id").value;
+
+    const payload = {
+        type,
+        target_container,
+        duration,
+        agent_id
+    };
+
+    if (type === "memory_stress" && memory_mb) {
+        payload.memory_mb = parseInt(memory_mb);
+    }
+
+    // const url = "http://localhost:8000/create-experiment";
+    const url = "https://js0jrg7evl.execute-api.us-east-1.amazonaws.com/create-experiment";
+    try {
+        const res = await fetch(url, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(text);
+        }
+
+        const data = await res.json();
+        document.getElementById("response").innerText =
+            "Experiment Created: " + data.experiment_id;
+
+    } catch (err) {
+        document.getElementById("response").innerText =
+            "Error: " + err.message;
+    }
+});
+</script>
+
+
+</body>
+</html>

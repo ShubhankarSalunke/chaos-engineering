@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Create Chaos Experiment</title>
+</head>
+<body>
+
+    <h2>Create Experiment</h2>
+
+    <form id="expForm">
+        <label>User ID:</label>
+        <input type="text" id="user_id" required>
+        <br><br>
+
+        <label>Agent ID:</label>
+        <input type="text" id="agent_id" required>
+        <br><br>
+
+        <button type="submit">Create Agent</button>
+    </form>
+
+    <h3 id="response"></h3>
+
+<script>
+document.getElementById("expForm").addEventListener("submit", async function(e) {
+    e.preventDefault();
+
+    const user_id = document.getElementById("user_id").value;
+    const agent_id = document.getElementById("agent_id").value;
+
+    const payload = {
+        user_id,
+        agent_id
+    };
+
+    // const url = "http://localhost:8000/create-agent";
+    const url = "https://js0jrg7evl.execute-api.us-east-1.amazonaws.com/create-agent";
+    try {
+        const res = await fetch(url, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(text);
+        }
+
+        const data = await res.json();
+        document.getElementById("response").innerText =
+            "Agent Created: " + data.agent_id + " " + "Verification Token: " + data.verification_token;
+        
+        
+
+    } catch (err) {
+        document.getElementById("response").innerText =
+            "Error: " + err.message;
+    }
+});
+</script>
+
+
+</body>
+</html>
