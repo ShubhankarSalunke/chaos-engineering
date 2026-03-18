@@ -1,0 +1,11 @@
+{
+ "cdea0fa1-3825-4978-9718-8758c0129b40": {
+  "agent_id": "Agent1",
+  "assigned_to": "Agent1",
+  "duration": 10,
+  "memory_mb": 0,
+  "status": "completed",
+  "target_container": "demo-mono",
+  "type": "container_kill"
+ }
+}

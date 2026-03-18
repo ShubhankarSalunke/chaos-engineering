@@ -1,73 +1,70 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
+	"strings"
 	"time"
 )
 
 const CONTROL_PLANE = "http://localhost:8000"
 const POLL_INTERVAL = 5
 
-type Experiment struct {
-	ExperimentID    string `json:"experiment_id"`
-	Type            string `json:"type"`
-	TargetContainer string `json:"target_container"`
-	Duration        int    `json:"duration"`
-	MemoryMB        int    `json:"memory_mb"`
+func register(token string) (string, string) {
+
+	body, _ := json.Marshal(map[string]string{
+		"verification_token": token,
+		"host":               "localhost",
+	})
+
+	resp, _ := http.Post(CONTROL_PLANE+"/register", "application/json", bytes.NewBuffer(body))
+
+	var data map[string]string
+	json.NewDecoder(resp.Body).Decode(&data)
+
+	return data["agent_id"], data["user_id"]
 }
 
-func killContainer(container string, duration int) {
-
-	exec.Command("docker", "kill", container).Run()
-
-	fmt.Println("container killed")
-
+func killContainer(name string, duration int) {
+	exec.Command("docker", "kill", name).Run()
 	time.Sleep(time.Duration(duration) * time.Second)
-
-	exec.Command("docker", "start", container).Run()
-
-	fmt.Println("container restarted")
+	exec.Command("docker", "start", name).Run()
 }
 
-func memoryStress(container string, memory int, duration int) {
-
-	exec.Command("docker", "update",
-		"--memory", fmt.Sprintf("%dm", memory),
-		container).Run()
-
+func memoryStress(container string, mem int, duration int) {
+	exec.Command("docker", "update", "--memory", fmt.Sprintf("%dm", mem), container).Run()
 	time.Sleep(time.Duration(duration) * time.Second)
-
-	exec.Command("docker", "update",
-		"--memory", "0",
-		container).Run()
+	exec.Command("docker", "update", "--memory", "0", container).Run()
 }
 
-func executeExperiment(exp Experiment) {
+func execute(exp map[string]interface{}) {
 
-	if exp.Type == "container_kill" {
-		killContainer(exp.TargetContainer, exp.Duration)
+	id := exp["experiment_id"].(string)
+	t := exp["type"].(string)
+
+	if t == "container_kill" {
+		killContainer(exp["target_container"].(string), int(exp["duration"].(float64)))
 	}
 
-	if exp.Type == "memory_stress" {
-		memoryStress(exp.TargetContainer, exp.MemoryMB, exp.Duration)
+	if t == "memory_stress" {
+		memoryStress(
+			exp["target_container"].(string),
+			int(exp["memory_mb"].(float64)),
+			int(exp["duration"].(float64)),
+		)
 	}
 
-	result := map[string]interface{}{
-		"experiment_id": exp.ExperimentID,
+	body, _ := json.Marshal(map[string]interface{}{
+		"experiment_id": id,
 		"status":        "completed",
-	}
+	})
 
-	body, _ := json.Marshal(result)
-
-	http.Post(
-		CONTROL_PLANE+"/result",
-		"application/json",
-		bytes.NewBuffer(body),
-	)
+	http.Post(CONTROL_PLANE+"/result", "application/json", bytes.NewBuffer(body))
 }
 
 func poll(agentID string) {
@@ -75,18 +72,16 @@ func poll(agentID string) {
 	for {
 
 		resp, err := http.Get(CONTROL_PLANE + "/poll/" + agentID)
-
 		if err != nil {
 			time.Sleep(POLL_INTERVAL * time.Second)
 			continue
 		}
 
-		var exp Experiment
-
+		var exp map[string]interface{}
 		json.NewDecoder(resp.Body).Decode(&exp)
 
-		if exp.ExperimentID != "" {
-			executeExperiment(exp)
+		if exp["experiment_id"] != nil {
+			execute(exp)
 		}
 
 		time.Sleep(POLL_INTERVAL * time.Second)
@@ -95,9 +90,15 @@ func poll(agentID string) {
 
 func main() {
 
-	agentID := "agent-1"
+	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Println("agent started")
+	fmt.Print("Enter verification token: ")
+	token, _ := reader.ReadString('\n')
+	token = strings.TrimSpace(token)
+
+	agentID, userID := register(token)
+
+	fmt.Println("Agent registered:", agentID, "User:", userID)
 
 	poll(agentID)
 }

@@ -4,114 +4,159 @@ import (
 	"encoding/json"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
-var (
-	experimentsFile = "experiments.json"
-	mutex           sync.Mutex
-)
+var lock sync.Mutex
 
-type Experiment struct {
-	ID              string `json:"experiment_id"`
-	Type            string `json:"type"`
-	TargetContainer string `json:"target_container"`
-	Duration        int    `json:"duration"`
-	AgentID         string `json:"agent_id"`
-	Status          string `json:"status"`
-}
+var agentsFile = "agents.json"
+var experimentsFile = "experiments.json"
+var mappingFile = "mapping.json"
 
-func readExperiments() map[string]Experiment {
+func readJSON(file string) map[string]interface{} {
+	lock.Lock()
+	defer lock.Unlock()
 
-	mutex.Lock()
-	defer mutex.Unlock()
+	data := make(map[string]interface{})
 
-	file, err := os.ReadFile(experimentsFile)
-
+	bytes, err := os.ReadFile(file)
 	if err != nil {
-		return make(map[string]Experiment)
+		return data
 	}
 
-	var data map[string]Experiment
-
-	json.Unmarshal(file, &data)
-
-	if data == nil {
-		data = make(map[string]Experiment)
-	}
-
+	json.Unmarshal(bytes, &data)
 	return data
 }
 
-func writeExperiments(data map[string]Experiment) {
-
-	mutex.Lock()
-	defer mutex.Unlock()
+func writeJSON(file string, data map[string]interface{}) {
+	lock.Lock()
+	defer lock.Unlock()
 
 	bytes, _ := json.MarshalIndent(data, "", " ")
-
-	os.WriteFile(experimentsFile, bytes, 0644)
+	os.WriteFile(file, bytes, 0644)
 }
+
+/* USER AGENT MAPPING */
+
+func storeUserAgentMapping(userID, agentID, token string) {
+
+	data := readJSON(mappingFile)
+
+	data[userID] = map[string]interface{}{
+		"agent_id":           agentID,
+		"verification_token": token,
+	}
+
+	writeJSON(mappingFile, data)
+}
+
+func verifyToken(token string) (string, string) {
+
+	data := readJSON(mappingFile)
+
+	for user, v := range data {
+
+		m := v.(map[string]interface{})
+
+		if m["verification_token"] == token {
+			return user, m["agent_id"].(string)
+		}
+	}
+
+	return "", ""
+}
+
+/* AGENTS */
+
+func registerAgentStore(agentID, host string) {
+
+	data := readJSON(agentsFile)
+
+	data[agentID] = map[string]interface{}{
+		"host":      host,
+		"last_seen": time.Now().UTC().String(),
+	}
+
+	writeJSON(agentsFile, data)
+}
+
+func updateLastSeen(agentID string) {
+
+	data := readJSON(agentsFile)
+
+	if agent, ok := data[agentID]; ok {
+
+		m := agent.(map[string]interface{})
+		m["last_seen"] = time.Now().UTC().String()
+		data[agentID] = m
+		writeJSON(agentsFile, data)
+	}
+}
+
+/* EXPERIMENTS */
 
 func storeExperiment(id string, exp ExperimentCreate) {
 
-	data := readExperiments()
+	data := readJSON(experimentsFile)
 
-	data[id] = Experiment{
-		ID:              id,
-		Type:            exp.Type,
-		TargetContainer: exp.TargetContainer,
-		Duration:        exp.Duration,
-		AgentID:         exp.AgentID,
-		Status:          "pending",
+	data[id] = map[string]interface{}{
+		"type":             exp.Type,
+		"target_container": exp.TargetContainer,
+		"duration":         exp.Duration,
+		"agent_id":         exp.AgentID,
+		"memory_mb":        exp.MemoryMB,
+		"status":           "pending",
+		"assigned_to":      exp.AgentID,
 	}
 
-	writeExperiments(data)
+	writeJSON(experimentsFile, data)
 }
 
-func getExperimentForAgent(agentID string) *Experiment {
+func getExperimentForAgent(agentID string) map[string]interface{} {
 
-	data := readExperiments()
+	data := readJSON(experimentsFile)
 
-	for id, exp := range data {
+	for id, v := range data {
 
-		if exp.Status == "pending" && exp.AgentID == agentID {
+		exp := v.(map[string]interface{})
 
-			exp.Status = "assigned"
+		if exp["status"] == "pending" && exp["assigned_to"] == agentID {
+
+			exp["status"] = "assigned"
 			data[id] = exp
-			writeExperiments(data)
+			writeJSON(experimentsFile, data)
 
-			return &exp
+			exp["experiment_id"] = id
+			return exp
 		}
 	}
 
 	return nil
 }
 
-func updateExperiment(result ExperimentResult) {
+func updateExperimentStatus(id, status string, result map[string]interface{}) {
 
-	data := readExperiments()
+	data := readJSON(experimentsFile)
 
-	exp := data[result.ExperimentID]
+	exp := data[id].(map[string]interface{})
+	exp["status"] = status
 
-	exp.Status = result.Status
+	if result != nil {
+		exp["result"] = result
+	}
 
-	data[result.ExperimentID] = exp
+	data[id] = exp
+	writeJSON(experimentsFile, data)
+}
 
-	writeExperiments(data)
+/* APIs */
+
+func getAgents(c *gin.Context) {
+	c.JSON(200, readJSON(agentsFile))
 }
 
 func getExperiments(c *gin.Context) {
-
-	data := readExperiments()
-
-	c.JSON(200, data)
-}
-
-func getAgents(c *gin.Context) {
-
-	c.JSON(200, gin.H{
-		"agents": "agent tracking can be added later",
-	})
+	c.JSON(200, readJSON(experimentsFile))
 }

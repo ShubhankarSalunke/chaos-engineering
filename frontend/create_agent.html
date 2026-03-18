@@ -33,8 +33,8 @@ document.getElementById("expForm").addEventListener("submit", async function(e) 
         agent_id
     };
 
-    // const url = "http://localhost:8000/create-agent";
-    const url = "https://js0jrg7evl.execute-api.us-east-1.amazonaws.com/create-agent";
+    const url = "http://localhost:8000/create-agent";
+    // const url = "https://js0jrg7evl.execute-api.us-east-1.amazonaws.com/create-agent";
     try {
         const res = await fetch(url, {
             method: "POST",

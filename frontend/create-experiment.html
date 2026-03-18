@@ -57,8 +57,8 @@ document.getElementById("expForm").addEventListener("submit", async function(e) 
         payload.memory_mb = parseInt(memory_mb);
     }
 
-    // const url = "http://localhost:8000/create-experiment";
-    const url = "https://js0jrg7evl.execute-api.us-east-1.amazonaws.com/create-experiment";
+    const url = "http://localhost:8000/create-experiment";
+    // const url = "https://js0jrg7evl.execute-api.us-east-1.amazonaws.com/create-experiment";
     try {
         const res = await fetch(url, {
             method: "POST",
