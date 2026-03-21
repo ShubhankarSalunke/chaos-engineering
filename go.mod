@@ -1,4 +1,4 @@
-module orchestrator
+module github.com/ShubhankarSalunke/chaos-engineering.git
 
 go 1.26.1
 
