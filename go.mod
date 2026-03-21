@@ -1,4 +1,4 @@
-module backend-go
+module orchestrator
 
 go 1.26.1
 
