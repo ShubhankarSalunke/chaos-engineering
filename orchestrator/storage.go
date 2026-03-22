@@ -106,9 +106,13 @@ func storeExperiment(id string, exp ExperimentCreate) {
 		"target_container": exp.TargetContainer,
 		"duration":         exp.Duration,
 		"agent_id":         exp.AgentID,
-		"memory_mb":        exp.MemoryMB,
-		"status":           "pending",
-		"assigned_to":      exp.AgentID,
+
+		"memory_mb":   exp.MemoryMB,
+		"cpu_percent": exp.CPUPercent,
+		"latency_ms":  exp.LatencyMS,
+
+		"status":      "pending",
+		"assigned_to": exp.AgentID,
 	}
 
 	writeJSON(experimentsFile, data)

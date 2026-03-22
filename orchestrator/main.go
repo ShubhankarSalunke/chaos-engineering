@@ -24,7 +24,10 @@ type ExperimentCreate struct {
 	TargetContainer string `json:"target_container"`
 	Duration        int    `json:"duration"`
 	AgentID         string `json:"agent_id"`
-	MemoryMB        int    `json:"memory_mb,omitempty"`
+
+	MemoryMB   int `json:"memory_mb,omitempty"`
+	CPUPercent int `json:"cpu_percent,omitempty"`
+	LatencyMS  int `json:"latency_ms,omitempty"`
 }
 
 type ExperimentResult struct {
@@ -114,7 +117,10 @@ func pollAgent(c *gin.Context) {
 func submitResult(c *gin.Context) {
 
 	var result ExperimentResult
-	c.BindJSON(&result)
+	if err := c.BindJSON(&result); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
 
 	updateExperimentStatus(result.ExperimentID, result.Status, result.Result)
 
@@ -124,7 +130,35 @@ func submitResult(c *gin.Context) {
 func createExperiment(c *gin.Context) {
 
 	var exp ExperimentCreate
-	c.BindJSON(&exp)
+	if err := c.BindJSON(&exp); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	if exp.Type == "" || exp.AgentID == "" || exp.Duration <= 0 {
+		c.JSON(400, gin.H{"error": "invalid request"})
+		return
+	}
+
+	switch exp.Type {
+	case "memory_stress":
+		if exp.MemoryMB <= 0 {
+			c.JSON(400, gin.H{"error": "memory_mb required"})
+			return
+		}
+
+	case "cpu_stress":
+		if exp.CPUPercent <= 0 || exp.CPUPercent > 100 {
+			c.JSON(400, gin.H{"error": "cpu_percent must be 1-100"})
+			return
+		}
+
+	case "network_latency":
+		if exp.LatencyMS <= 0 {
+			c.JSON(400, gin.H{"error": "latency_ms required"})
+			return
+		}
+	}
 
 	id := uuid.New().String()
 
