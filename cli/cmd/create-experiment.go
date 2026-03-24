@@ -1,17 +1,22 @@
 package cmd
 
 import (
-	"bufio"
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"os"
-	"strconv"
-	"strings"
+	"io"
 
 	"github.com/ShubhankarSalunke/chaos-engineering.git/cli/config"
 	"github.com/spf13/cobra"
+)
+
+var (
+	expType    string
+	agentIDExp string
+	duration   int
+	cpu        int
+	memory     int
+	latency    int
+	target     string
 )
 
 var createExperimentCmd = &cobra.Command{
@@ -19,92 +24,49 @@ var createExperimentCmd = &cobra.Command{
 	Short: "Create experiment",
 	Run: func(cmd *cobra.Command, args []string) {
 
-		server := config.GetServerURL()
-		reader := bufio.NewReader(os.Stdin)
-
-		// Agent ID
-		fmt.Print("Enter Agent ID: ")
-		agentID, _ := reader.ReadString('\n')
-		agentID = strings.TrimSpace(agentID)
-
-		// Experiment Type
-		fmt.Print("Enter Type (container_kill / cpu_stress / memory_stress / network_latency): ")
-		expType, _ := reader.ReadString('\n')
-		expType = strings.TrimSpace(expType)
-
-		fmt.Print("Enter Duration (seconds): ")
-		durationStr, _ := reader.ReadString('\n')
-		durationStr = strings.TrimSpace(durationStr)
-
-		duration, err := strconv.Atoi(durationStr)
-		if err != nil || duration <= 0 {
-			fmt.Println("Invalid duration")
-			return
-		}
-
-		if agentID == "" || expType == "" {
-			fmt.Println("Agent ID and Type cannot be empty")
+		if expType == "" || agentIDExp == "" || duration <= 0 {
+			fmt.Println("type, agent and duration are required")
 			return
 		}
 
 		payload := map[string]interface{}{
-			"agent_id": agentID,
-			"type":     expType,
-			"duration": duration,
+			"type":             expType,
+			"agent_id":         agentIDExp,
+			"duration":         duration,
+			"target_container": target,
 		}
 
 		switch expType {
 
-		case "container_kill":
-			fmt.Print("Enter Container Name/ID: ")
-			val, _ := reader.ReadString('\n')
-			val = strings.TrimSpace(val)
-
-			if val == "" {
-				fmt.Println("Container cannot be empty")
-				return
-			}
-
-			payload["target_container"] = val
-
 		case "cpu_stress":
-			fmt.Print("Enter CPU % (1-100): ")
-			val, _ := reader.ReadString('\n')
-			val = strings.TrimSpace(val)
-
-			cpu, err := strconv.Atoi(val)
-			if err != nil || cpu <= 0 || cpu > 100 {
-				fmt.Println("Invalid CPU percent")
+			if cpu <= 0 || cpu > 100 {
+				fmt.Println("cpu must be between 1-100")
 				return
 			}
 			payload["cpu_percent"] = cpu
 
 		case "memory_stress":
-			fmt.Print("Enter Memory (MB): ")
-			val, _ := reader.ReadString('\n')
-			val = strings.TrimSpace(val)
-
-			mem, err := strconv.Atoi(val)
-			if err != nil || mem <= 0 {
-				fmt.Println("Invalid memory value")
+			if memory <= 0 {
+				fmt.Println("memory must be > 0")
 				return
 			}
-			payload["memory_mb"] = mem
+			payload["memory_mb"] = memory
 
 		case "network_latency":
-			fmt.Print("Enter Latency (ms): ")
-			val, _ := reader.ReadString('\n')
-			val = strings.TrimSpace(val)
-
-			lat, err := strconv.Atoi(val)
-			if err != nil || lat <= 0 {
-				fmt.Println("Invalid latency")
+			if latency <= 0 {
+				fmt.Println("latency must be > 0")
 				return
 			}
-			payload["latency_ms"] = lat
+			payload["latency_ms"] = latency
+
+		case "container_kill":
+			if target == "" {
+				fmt.Println("target container required")
+				return
+			}
 
 		default:
-			fmt.Println("Invalid experiment type")
+			fmt.Println("invalid experiment type")
 			return
 		}
 
@@ -114,21 +76,22 @@ var createExperimentCmd = &cobra.Command{
 			return
 		}
 
-		resp, err := http.Post(server+"/create-experiment",
-			"application/json",
-			bytes.NewBuffer(body))
-
+		resp, err := doRequest("POST", config.GetServerURL()+"/create-experiment", body)
 		if err != nil {
 			fmt.Println("Request failed:", err)
 			return
 		}
 		defer resp.Body.Close()
 
-		var result map[string]interface{}
-		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			fmt.Println("Error decoding response:", err)
+		resBody, _ := io.ReadAll(resp.Body)
+
+		if resp.StatusCode != 200 {
+			fmt.Println("Error:", string(resBody))
 			return
 		}
+
+		var result map[string]interface{}
+		json.Unmarshal(resBody, &result)
 
 		fmt.Println("\n✅ Experiment Created")
 		fmt.Println("Experiment ID:", result["experiment_id"])
@@ -136,5 +99,16 @@ var createExperimentCmd = &cobra.Command{
 }
 
 func init() {
+	createExperimentCmd.Flags().StringVar(&expType, "type", "", "Experiment type")
+	createExperimentCmd.Flags().StringVar(&agentIDExp, "agent", "", "Agent ID")
+	createExperimentCmd.Flags().IntVar(&duration, "duration", 30, "Duration in seconds")
+	createExperimentCmd.Flags().IntVar(&cpu, "cpu", 0, "CPU %")
+	createExperimentCmd.Flags().IntVar(&memory, "memory", 0, "Memory MB")
+	createExperimentCmd.Flags().IntVar(&latency, "latency", 0, "Latency ms")
+	createExperimentCmd.Flags().StringVar(&target, "target", "", "Target container")
+
+	createExperimentCmd.MarkFlagRequired("type")
+	createExperimentCmd.MarkFlagRequired("agent")
+
 	rootCmd.AddCommand(createExperimentCmd)
 }

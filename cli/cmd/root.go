@@ -1,12 +1,25 @@
 package cmd
 
-import "github.com/spf13/cobra"
+import (
+	"fmt"
+	"os"
+
+	"github.com/spf13/cobra"
+)
 
 var rootCmd = &cobra.Command{
-	Use:   "chaos",
+	Use:   "lucifer",
 	Short: "Chaos Engineering CLI",
 }
 
 func Execute() {
-	rootCmd.Execute()
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 }
+
+// func init() {
+// 	rootCmd.AddCommand(createAgentCmd)
+// 	rootCmd.AddCommand(createExperimentCmd)
+// }

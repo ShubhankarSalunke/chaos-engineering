@@ -3,14 +3,18 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"strings"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
+/* =========================
+   STRUCTS
+========================= */
+
 type UserAgentMapping struct {
-	UserID  string `json:"user_id"`
 	AgentID string `json:"agent_id"`
 }
 
@@ -36,26 +40,99 @@ type ExperimentResult struct {
 	Result       map[string]interface{} `json:"result"`
 }
 
+/* =========================
+   UTILS
+========================= */
+
 func hashToken(token string) string {
 	hash := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(hash[:])
 }
+
+/* =========================
+   MAIN
+========================= */
 
 func main() {
 
 	r := gin.Default()
 	r.Use(cors.Default())
 
-	r.POST("/create-agent", createAgent)
+	// PUBLIC ROUTES
+	r.POST("/create-user", createUser)
 	r.POST("/register", registerAgent)
 	r.GET("/poll/:agent_id", pollAgent)
 	r.POST("/result", submitResult)
-	r.POST("/create-experiment", createExperiment)
-	r.GET("/agents", getAgents)
-	r.GET("/experiments", getExperiments)
 
-	r.Run(":8000")
+	// AUTH ROUTES
+	auth := r.Group("/")
+	auth.Use(authMiddleware())
+
+	auth.POST("/create-agent", createAgent)
+	auth.POST("/create-experiment", createExperiment)
+	auth.GET("/agents", getAgents)
+	auth.GET("/experiments", getExperiments)
+
+	r.Run("0.0.0.0:8000")
 }
+
+/* =========================
+   AUTH
+========================= */
+
+func authMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+
+		token := c.GetHeader("Authorization")
+
+		if token == "" {
+			c.JSON(401, gin.H{"error": "missing token"})
+			c.Abort()
+			return
+		}
+
+		token = strings.TrimPrefix(token, "Bearer ")
+		hashed := hashToken(token)
+
+		data := readJSON("users.json")
+
+		for userID, v := range data {
+			m := v.(map[string]interface{})
+
+			if m["token"] == hashed {
+				c.Set("user_id", userID)
+				c.Next()
+				return
+			}
+		}
+
+		c.JSON(401, gin.H{"error": "invalid token"})
+		c.Abort()
+	}
+}
+
+func createUser(c *gin.Context) {
+
+	userID := uuid.New().String()
+	rawToken := uuid.New().String()
+
+	data := readJSON("users.json")
+
+	data[userID] = map[string]interface{}{
+		"token": hashToken(rawToken),
+	}
+
+	writeJSON("users.json", data)
+
+	c.JSON(200, gin.H{
+		"user_id": userID,
+		"token":   rawToken,
+	})
+}
+
+/* =========================
+   AGENT APIs
+========================= */
 
 func createAgent(c *gin.Context) {
 
@@ -65,9 +142,11 @@ func createAgent(c *gin.Context) {
 		return
 	}
 
+	userID := c.GetString("user_id")
+
 	token := uuid.New().String()
 
-	storeUserAgentMapping(req.UserID, req.AgentID, hashToken(token))
+	storeUserAgentMapping(userID, req.AgentID, hashToken(token))
 
 	c.JSON(200, gin.H{
 		"agent_id":           req.AgentID,
@@ -127,6 +206,10 @@ func submitResult(c *gin.Context) {
 	c.JSON(200, gin.H{"message": "result recorded"})
 }
 
+/* =========================
+   EXPERIMENT APIs
+========================= */
+
 func createExperiment(c *gin.Context) {
 
 	var exp ExperimentCreate
@@ -165,4 +248,67 @@ func createExperiment(c *gin.Context) {
 	storeExperiment(id, exp)
 
 	c.JSON(200, gin.H{"experiment_id": id})
+}
+
+/* =========================
+   QUERY APIs (USER SCOPED)
+========================= */
+
+func getAgents(c *gin.Context) {
+
+	userID := c.GetString("user_id")
+
+	mapping := readJSON(mappingFile)
+	agents := readJSON(agentsFile)
+
+	result := make(map[string]interface{})
+
+	if v, ok := mapping[userID]; ok {
+
+		list := v.([]interface{})
+
+		for _, item := range list {
+
+			m := item.(map[string]interface{})
+			agentID := m["agent_id"].(string)
+
+			if agent, exists := agents[agentID]; exists {
+				result[agentID] = agent
+			}
+		}
+	}
+
+	c.JSON(200, result)
+}
+
+func getExperiments(c *gin.Context) {
+
+	userID := c.GetString("user_id")
+
+	mapping := readJSON(mappingFile)
+	experiments := readJSON(experimentsFile)
+
+	result := make(map[string]interface{})
+
+	if v, ok := mapping[userID]; ok {
+
+		list := v.([]interface{})
+
+		for _, item := range list {
+
+			m := item.(map[string]interface{})
+			agentID := m["agent_id"].(string)
+
+			for id, expRaw := range experiments {
+
+				exp := expRaw.(map[string]interface{})
+
+				if exp["agent_id"] == agentID {
+					result[id] = exp
+				}
+			}
+		}
+	}
+
+	c.JSON(200, result)
 }

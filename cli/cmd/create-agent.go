@@ -1,44 +1,27 @@
 package cmd
 
 import (
-	"bufio"
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"os"
-	"strings"
+	"io"
 
 	"github.com/ShubhankarSalunke/chaos-engineering.git/cli/config"
 	"github.com/spf13/cobra"
 )
+
+var agentID string
 
 var createAgentCmd = &cobra.Command{
 	Use:   "create-agent",
 	Short: "Create agent",
 	Run: func(cmd *cobra.Command, args []string) {
 
-		server := config.GetServerURL()
-		reader := bufio.NewReader(os.Stdin)
-
-		// Input: User ID
-		fmt.Print("Enter User ID: ")
-		userID, _ := reader.ReadString('\n')
-		userID = strings.TrimSpace(userID)
-
-		// Input: Agent ID
-		fmt.Print("Enter Agent ID: ")
-		agentID, _ := reader.ReadString('\n')
-		agentID = strings.TrimSpace(agentID)
-
-		// Basic validation
-		if userID == "" || agentID == "" {
-			fmt.Println("User ID and Agent ID cannot be empty")
+		if agentID == "" {
+			fmt.Println("Agent ID is required")
 			return
 		}
 
 		payload := map[string]string{
-			"user_id":  userID,
 			"agent_id": agentID,
 		}
 
@@ -48,21 +31,22 @@ var createAgentCmd = &cobra.Command{
 			return
 		}
 
-		resp, err := http.Post(server+"/create-agent",
-			"application/json",
-			bytes.NewBuffer(body))
-
+		resp, err := doRequest("POST", config.GetServerURL()+"/create-agent", body)
 		if err != nil {
 			fmt.Println("Request failed:", err)
 			return
 		}
 		defer resp.Body.Close()
 
-		var result map[string]interface{}
-		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			fmt.Println("Error decoding response:", err)
+		resBody, _ := io.ReadAll(resp.Body)
+
+		if resp.StatusCode != 200 {
+			fmt.Println("Error:", string(resBody))
 			return
 		}
+
+		var result map[string]interface{}
+		json.Unmarshal(resBody, &result)
 
 		fmt.Println("\n✅ Agent Created Successfully")
 		fmt.Println("Agent ID:", result["agent_id"])
@@ -71,5 +55,8 @@ var createAgentCmd = &cobra.Command{
 }
 
 func init() {
+	createAgentCmd.Flags().StringVar(&agentID, "id", "", "Agent ID")
+	createAgentCmd.MarkFlagRequired("id")
+
 	rootCmd.AddCommand(createAgentCmd)
 }
