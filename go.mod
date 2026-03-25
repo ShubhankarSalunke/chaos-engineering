@@ -1,4 +1,4 @@
-module github.com/ShubhankarSalunke/chaos-engineering.git
+module github.com/ShubhankarSalunke/chaos-engineering
 
 go 1.26.1
 
@@ -10,6 +10,13 @@ require (
 )
 
 require (
+	github.com/aws/aws-sdk-go-v2 v1.41.4 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.20 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.20 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.296.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.7 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.20 // indirect
+	github.com/aws/smithy-go v1.24.2 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic v1.15.0 // indirect
 	github.com/bytedance/sonic/loader v0.5.0 // indirect
