@@ -40,6 +40,10 @@ type ExperimentResult struct {
 	Result       map[string]interface{} `json:"result"`
 }
 
+type UserCreate struct {
+	UserID string `json:"user_id"`
+}
+
 /* =========================
    UTILS
 ========================= */
@@ -113,10 +117,22 @@ func authMiddleware() gin.HandlerFunc {
 
 func createUser(c *gin.Context) {
 
-	userID := uuid.New().String()
-	rawToken := uuid.New().String()
+	var req UserCreate
+	c.ShouldBindJSON(&req)
+
+	userID := req.UserID
+	if userID == "" {
+		userID = uuid.New().String()
+	}
 
 	data := readJSON("users.json")
+
+	if _, exists := data[userID]; exists {
+		c.JSON(400, gin.H{"error": "user_id already exists"})
+		return
+	}
+
+	rawToken := uuid.New().String()
 
 	data[userID] = map[string]interface{}{
 		"token": hashToken(rawToken),
