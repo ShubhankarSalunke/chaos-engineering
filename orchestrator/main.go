@@ -94,7 +94,7 @@ func main() {
 	auth.GET("/agents", getAgents)
 	auth.GET("/experiments", getExperiments)
 
-	r.Run("0.0.0.0:8000")
+	r.Run("0.0.0.0:8001")
 }
 
 /* =========================

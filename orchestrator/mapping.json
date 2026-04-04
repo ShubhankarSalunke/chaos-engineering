@@ -21,6 +21,10 @@
     {
       "agent_id": "my_ec2_agent1",
       "verification_token": "3e06bfb6eff48207785062853ab44db6189a784d8227402ae9170a2f1f087d56"
+  "1f57aa45-cd12-4122-a481-538e37defac1": [
+    {
+      "agent_id": "demo-agent",
+      "verification_token": "5d985906886204b7650133892eb4bd92d3ffdf548a5d5d579f92f339379d1b10"
     }
   ],
   "user1": {

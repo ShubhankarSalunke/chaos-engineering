@@ -11,6 +11,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	auditexperiments "github.com/ShubhankarSalunke/chaos-engineering/experiments/audit-experiments"
+	"github.com/adigajjar/security-audit/scanner"
 )
 
 var commonCredentials = []struct{ user, pass string }{
@@ -90,14 +91,20 @@ func (e *BruteForceExposure) Run() (*auditexperiments.ExperimentResult, error) {
 	failCount := 0
 	var successfulCreds []string
 
-	for _, cred := range commonCredentials {
+	fmt.Printf("[Chaos: Brute Force] Starting attack on %s (%s)...\n", e.InstanceID, ip)
+	for i, cred := range commonCredentials {
+		fmt.Printf("[Chaos: Brute Force] [%d/%d] Attempting %s:%s... ", i+1, len(commonCredentials), cred.user, cred.pass)
 		success, detail := attemptSSH(ip, cred.user, cred.pass)
 		event := "attempt_failed"
 		if success {
+			fmt.Println("✅ SUCCESS!")
 			event = "attempt_succeeded"
 			successCount++
 			successfulCreds = append(successfulCreds, fmt.Sprintf("%s:%s", cred.user, cred.pass))
 		} else {
+			fmt.Println("❌ Failed")
+			event = "attempt_succeeded" // Keeping existing logic but fixing the event name if it was a typo, actually the user had event = "attempt_failed" which is correct for else. Wait, checking original code.
+			event = "attempt_failed"
 			failCount++
 		}
 		result.Observations = append(result.Observations, auditexperiments.ObservationLog{
@@ -106,6 +113,8 @@ func (e *BruteForceExposure) Run() (*auditexperiments.ExperimentResult, error) {
 			Detail:    detail,
 		})
 	}
+
+	fmt.Printf("[Chaos: Brute Force] Attack finished. Successes: %d, Failures: %d\n", successCount, failCount)
 
 	// Post snapshot
 	result.PostSnapshot = map[string]interface{}{
@@ -167,4 +176,32 @@ func getInstancePublicIP(ctx context.Context, client *awsec2.Client, instanceID 
 		}
 	}
 	return "", nil
+}
+
+func SimulateBruteForceExposure(client *awsec2.Client, data interface{}) ([]*auditexperiments.ExperimentResult, error) {
+	var results []*auditexperiments.ExperimentResult
+	ec2Data, ok := data.(scanner.Ec2AuditResults)
+	if !ok {
+		return nil, fmt.Errorf("simulate_brute_force_exposure expects scanner.Ec2AuditResults")
+	}
+
+	for _, inst := range ec2Data.Instances {
+		if len(inst.SecurityGroups) > 0 && inst.InstanceId != nil {
+			sgID := *inst.SecurityGroups[0].GroupId
+			fmt.Printf("[Chaos Trigger] Starting brute force exposure on instance %s (SG: %s)\n", *inst.InstanceId, sgID)
+			exp := BruteForceExposure{
+				Client:          client,
+				SecurityGroupID: sgID,
+				InstanceID:      *inst.InstanceId,
+			}
+			res, err := exp.Run()
+			if err != nil {
+				fmt.Printf("[Chaos Trigger] Experiment failed: %v\n", err)
+			} else {
+				fmt.Printf("[Chaos Trigger] Experiment completed: Impact=%s, Status=%s\n", res.Impact, res.Status)
+				results = append(results, res)
+			}
+		}
+	}
+	return results, nil
 }
