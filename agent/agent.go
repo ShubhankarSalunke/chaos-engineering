@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-const CONTROL_PLANE = "http://localhost:8000"
+const CONTROL_PLANE = "http://localhost:8001"
 const POLL_INTERVAL = 5
 const CMD_TIMEOUT = 10 * time.Second
 

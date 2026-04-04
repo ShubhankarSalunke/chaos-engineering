@@ -1,6 +1,12 @@
 {
- "user1": {
-  "agent_id": "Agent1",
-  "verification_token": "f85c29b96502f156ba1ad728f3bb5f1340eec8f615b622e558cd341401f71cd1"
- }
+  "1f57aa45-cd12-4122-a481-538e37defac1": [
+    {
+      "agent_id": "demo-agent",
+      "verification_token": "5d985906886204b7650133892eb4bd92d3ffdf548a5d5d579f92f339379d1b10"
+    }
+  ],
+  "user1": {
+    "agent_id": "Agent1",
+    "verification_token": "f85c29b96502f156ba1ad728f3bb5f1340eec8f615b622e558cd341401f71cd1"
+  }
 }
