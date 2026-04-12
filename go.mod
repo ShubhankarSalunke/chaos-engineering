@@ -7,6 +7,7 @@ require (
 	github.com/adigajjar/security-audit v0.0.0-00010101000000-000000000000
 	github.com/aws/aws-sdk-go-v2 v1.41.5
 	github.com/aws/aws-sdk-go-v2/config v1.32.13
+	github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.55.9
 	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.68.0
 	github.com/aws/aws-sdk-go-v2/service/configservice v1.62.1
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.296.0
