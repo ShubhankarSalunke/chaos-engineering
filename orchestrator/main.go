@@ -49,6 +49,10 @@ type ExperimentCreate struct {
 	Prefix        string `json:"prefix,omitempty"`
 	DeletePercent int    `json:"delete_percent,omitempty"`
 	ExternalID    string `json:"external_id,omitempty"`
+
+	AccessKey string `json:"access_key,omitempty"`
+	SecretKey string `json:"secret_key,omitempty"`
+	Region    string `json:"region,omitempty"`
 }
 
 type ExperimentResult struct {
@@ -59,6 +63,14 @@ type ExperimentResult struct {
 
 type UserCreate struct {
 	UserID string `json:"user_id"`
+}
+
+type UserAWSConfig struct {
+	AccessKey  string `json:"access_key"`
+	SecretKey  string `json:"secret_key"`
+	Region     string `json:"region"`
+	RoleARN    string `json:"role_arn"`
+	ExternalID string `json:"external_id"`
 }
 
 /* =========================
@@ -94,7 +106,7 @@ func main() {
 	auth.GET("/agents", getAgents)
 	auth.GET("/experiments", getExperiments)
 
-	r.Run("0.0.0.0:8001")
+	r.Run("0.0.0.0:8000")
 }
 
 /* =========================
@@ -251,8 +263,13 @@ func createExperiment(c *gin.Context) {
 		return
 	}
 
-	if exp.Type == "" || exp.AgentID == "" || exp.Duration <= 0 {
-		c.JSON(400, gin.H{"error": "invalid request"})
+	if exp.Type == "" || exp.Duration <= 0 {
+		c.JSON(400, gin.H{"error": "type and duration are required"})
+		return
+	}
+
+	if !strings.HasPrefix(exp.Type, "s3_") && exp.AgentID == "" {
+		c.JSON(400, gin.H{"error": "agent_id is required for host-level chaos"})
 		return
 	}
 
@@ -282,9 +299,9 @@ func createExperiment(c *gin.Context) {
 		}
 
 		go func() {
-			applyS3AccessDeny(exp.BucketName, exp.RoleARN, exp.ExternalID)
+			applyS3AccessDeny(exp)
 			time.Sleep(time.Duration(exp.Duration) * time.Second)
-			revertS3AccessDeny(exp.BucketName, exp.RoleARN, exp.ExternalID)
+			revertS3AccessDeny(exp)
 		}()
 
 	case "s3_kms_disable":
@@ -294,9 +311,9 @@ func createExperiment(c *gin.Context) {
 		}
 
 		go func() {
-			applyS3KMSChaos(exp.KMSKeyID, exp.RoleARN, exp.ExternalID)
+			applyS3KMSChaos(exp)
 			time.Sleep(time.Duration(exp.Duration) * time.Second)
-			revertS3KMSChaos(exp.KMSKeyID, exp.RoleARN, exp.ExternalID)
+			revertS3KMSChaos(exp)
 		}()
 
 	case "s3_object_delete":
@@ -306,7 +323,7 @@ func createExperiment(c *gin.Context) {
 		}
 
 		go func() {
-			applyS3DeleteChaos(exp.BucketName, exp.Prefix, exp.DeletePercent, exp.RoleARN, exp.ExternalID)
+			applyS3DeleteChaos(exp)
 		}()
 
 	case "s3_metadata_corrupt":
@@ -316,9 +333,9 @@ func createExperiment(c *gin.Context) {
 		}
 
 		go func() {
-			applyS3MetadataChaos(exp.BucketName, exp.Prefix, exp.RoleARN, exp.ExternalID)
+			applyS3MetadataChaos(exp)
 			time.Sleep(time.Duration(exp.Duration) * time.Second)
-			revertS3MetadataChaos(exp.BucketName, exp.Prefix, exp.RoleARN, exp.ExternalID)
+			revertS3MetadataChaos(exp)
 		}()
 	}
 
@@ -396,9 +413,17 @@ func getExperiments(c *gin.Context) {
    S3 CHAOS UTILITIES
 ========================= */
 
-func getS3Client(roleArn, externalId string) *s3.Client {
+func getS3Client(exp ExperimentCreate) *s3.Client {
 
-	cfg, err := connectors.ConnectAws(context.TODO(), roleArn, externalId)
+	awsCfg := connectors.AWSConfig{
+		AccessKey:  exp.AccessKey,
+		SecretKey:  exp.SecretKey,
+		Region:     exp.Region,
+		RoleARN:    exp.RoleARN,
+		ExternalID: exp.ExternalID,
+	}
+
+	cfg, err := connectors.ConnectAws(context.TODO(), awsCfg)
 	if err != nil {
 		fmt.Printf("Error connecting to AWS: %v\n", err)
 		return nil
@@ -407,66 +432,79 @@ func getS3Client(roleArn, externalId string) *s3.Client {
 	return s3.NewFromConfig(cfg)
 }
 
-func applyS3AccessDeny(bucketName, roleArn, externalId string) {
+func applyS3AccessDeny(exp ExperimentCreate) {
 
-	client := getS3Client(roleArn, externalId)
+	client := getS3Client(exp)
 	if client == nil {
 		return
 	}
-
+ 
 	policy := fmt.Sprintf(`{
 		"Version": "2012-10-17",
 		"Statement": [
 			{
-				"Sid": "DenyAll",
+				"Sid": "DenyReadWriteAccess",
 				"Effect": "Deny",
 				"Principal": "*",
-				"Action": "s3:*",
+				"Action": [
+					"s3:GetObject",
+					"s3:PutObject",
+					"s3:ListBucket"
+				],
 				"Resource": [
 					"arn:aws:s3:::%s",
 					"arn:aws:s3:::%s/*"
 				]
 			}
 		]
-	}`, bucketName, bucketName)
+	}`, exp.BucketName, exp.BucketName)
 
 	_, err := client.PutBucketPolicy(context.TODO(), &s3.PutBucketPolicyInput{
-		Bucket: aws.String(bucketName),
+		Bucket: aws.String(exp.BucketName),
 		Policy: aws.String(policy),
 	})
 
 	if err != nil {
 		fmt.Printf("Error applying S3 chaos: %v\n", err)
 	} else {
-		fmt.Printf("✅ S3 Chaos applied on bucket %s (Role: %s)\n", bucketName, roleArn)
+		fmt.Printf("✅ S3 Chaos applied on bucket %s\n", exp.BucketName)
 	}
 }
 
-func revertS3AccessDeny(bucketName, roleArn, externalId string) {
+func revertS3AccessDeny(exp ExperimentCreate) {
 
-	client := getS3Client(roleArn, externalId)
+	client := getS3Client(exp)
 	if client == nil {
 		return
 	}
 
 	_, err := client.DeleteBucketPolicy(context.TODO(), &s3.DeleteBucketPolicyInput{
-		Bucket: aws.String(bucketName),
+		Bucket: aws.String(exp.BucketName),
 	})
 
 	if err != nil {
 		fmt.Printf("Error reverting S3 chaos: %v\n", err)
 	} else {
-		fmt.Printf("✅ S3 Chaos reverted for bucket %s\n", bucketName)
+		fmt.Printf("✅ S3 Chaos reverted for bucket %s\n", exp.BucketName)
 	}
 }
+
 
 /* =========================
    ADVANCED S3 CHAOS UTILITIES
 ========================= */
 
-func getKMSClient(roleArn, externalId string) *kms.Client {
+func getKMSClient(exp ExperimentCreate) *kms.Client {
 
-	cfg, err := connectors.ConnectAws(context.TODO(), roleArn, externalId)
+	awsCfg := connectors.AWSConfig{
+		AccessKey:  exp.AccessKey,
+		SecretKey:  exp.SecretKey,
+		Region:     exp.Region,
+		RoleARN:    exp.RoleARN,
+		ExternalID: exp.ExternalID,
+	}
+
+	cfg, err := connectors.ConnectAws(context.TODO(), awsCfg)
 	if err != nil {
 		fmt.Printf("Error connecting to AWS: %v\n", err)
 		return nil
@@ -475,56 +513,56 @@ func getKMSClient(roleArn, externalId string) *kms.Client {
 	return kms.NewFromConfig(cfg)
 }
 
-func applyS3KMSChaos(keyID, roleArn, externalId string) {
+func applyS3KMSChaos(exp ExperimentCreate) {
 
-	client := getKMSClient(roleArn, externalId)
+	client := getKMSClient(exp)
 	if client == nil {
 		return
 	}
 
 	_, err := client.DisableKey(context.TODO(), &kms.DisableKeyInput{
-		KeyId: aws.String(keyID),
+		KeyId: aws.String(exp.KMSKeyID),
 	})
 
 	if err != nil {
 		fmt.Printf("Error disabling KMS key: %v\n", err)
 	} else {
-		fmt.Printf("✅ KMS Chaos applied: Key %s disabled\n", keyID)
+		fmt.Printf("✅ KMS Chaos applied: Key %s disabled\n", exp.KMSKeyID)
 	}
 }
 
-func revertS3KMSChaos(keyID, roleArn, externalId string) {
+func revertS3KMSChaos(exp ExperimentCreate) {
 
-	client := getKMSClient(roleArn, externalId)
+	client := getKMSClient(exp)
 	if client == nil {
 		return
 	}
 
 	_, err := client.EnableKey(context.TODO(), &kms.EnableKeyInput{
-		KeyId: aws.String(keyID),
+		KeyId: aws.String(exp.KMSKeyID),
 	})
 
 	if err != nil {
 		fmt.Printf("Error enabling KMS key: %v\n", err)
 	} else {
-		fmt.Printf("✅ KMS Chaos reverted: Key %s re-enabled\n", keyID)
+		fmt.Printf("✅ KMS Chaos reverted: Key %s re-enabled\n", exp.KMSKeyID)
 	}
 }
 
-func applyS3DeleteChaos(bucket, prefix string, percent int, roleArn, externalId string) {
+func applyS3DeleteChaos(exp ExperimentCreate) {
 
-	client := getS3Client(roleArn, externalId)
+	client := getS3Client(exp)
 	if client == nil {
 		return
 	}
 
-	if percent <= 0 {
-		percent = 10 // default 10%
+	if exp.DeletePercent <= 0 {
+		exp.DeletePercent = 10 // default 10%
 	}
 
 	list, err := client.ListObjectsV2(context.TODO(), &s3.ListObjectsV2Input{
-		Bucket: aws.String(bucket),
-		Prefix: aws.String(prefix),
+		Bucket: aws.String(exp.BucketName),
+		Prefix: aws.String(exp.Prefix),
 	})
 
 	if err != nil {
@@ -534,10 +572,10 @@ func applyS3DeleteChaos(bucket, prefix string, percent int, roleArn, externalId 
 
 	for _, obj := range list.Contents {
 
-		if time.Now().UnixNano()%100 < int64(percent) {
+		if time.Now().UnixNano()%100 < int64(exp.DeletePercent) {
 
 			_, err := client.DeleteObject(context.TODO(), &s3.DeleteObjectInput{
-				Bucket: aws.String(bucket),
+				Bucket: aws.String(exp.BucketName),
 				Key:    obj.Key,
 			})
 
@@ -550,16 +588,16 @@ func applyS3DeleteChaos(bucket, prefix string, percent int, roleArn, externalId 
 	}
 }
 
-func applyS3MetadataChaos(bucket, prefix string, roleArn, externalId string) {
+func applyS3MetadataChaos(exp ExperimentCreate) {
 
-	client := getS3Client(roleArn, externalId)
+	client := getS3Client(exp)
 	if client == nil {
 		return
 	}
 
 	list, err := client.ListObjectsV2(context.TODO(), &s3.ListObjectsV2Input{
-		Bucket: aws.String(bucket),
-		Prefix: aws.String(prefix),
+		Bucket: aws.String(exp.BucketName),
+		Prefix: aws.String(exp.Prefix),
 	})
 
 	if err != nil {
@@ -571,9 +609,9 @@ func applyS3MetadataChaos(bucket, prefix string, roleArn, externalId string) {
 
 		// Corrupt by copying to same key with different content-type
 		_, err := client.CopyObject(context.TODO(), &s3.CopyObjectInput{
-			Bucket:            aws.String(bucket),
+			Bucket:            aws.String(exp.BucketName),
 			Key:               obj.Key,
-			CopySource:        aws.String(fmt.Sprintf("%s/%s", bucket, *obj.Key)),
+			CopySource:        aws.String(fmt.Sprintf("%s/%s", exp.BucketName, *obj.Key)),
 			ContentType:       aws.String("application/corrupted-chaos"),
 			MetadataDirective: types.MetadataDirectiveReplace,
 		})
@@ -586,16 +624,16 @@ func applyS3MetadataChaos(bucket, prefix string, roleArn, externalId string) {
 	}
 }
 
-func revertS3MetadataChaos(bucket, prefix string, roleArn, externalId string) {
+func revertS3MetadataChaos(exp ExperimentCreate) {
 	// Reversion: In this simple version we just set it to application/octet-stream
-	client := getS3Client(roleArn, externalId)
+	client := getS3Client(exp)
 	if client == nil {
 		return
 	}
 
 	list, err := client.ListObjectsV2(context.TODO(), &s3.ListObjectsV2Input{
-		Bucket: aws.String(bucket),
-		Prefix: aws.String(prefix),
+		Bucket: aws.String(exp.BucketName),
+		Prefix: aws.String(exp.Prefix),
 	})
 
 	if err != nil {
@@ -605,9 +643,9 @@ func revertS3MetadataChaos(bucket, prefix string, roleArn, externalId string) {
 	for _, obj := range list.Contents {
 
 		_, err := client.CopyObject(context.TODO(), &s3.CopyObjectInput{
-			Bucket:            aws.String(bucket),
+			Bucket:            aws.String(exp.BucketName),
 			Key:               obj.Key,
-			CopySource:        aws.String(fmt.Sprintf("%s/%s", bucket, *obj.Key)),
+			CopySource:        aws.String(fmt.Sprintf("%s/%s", exp.BucketName, *obj.Key)),
 			ContentType:       aws.String("application/octet-stream"),
 			MetadataDirective: types.MetadataDirectiveReplace,
 		})
@@ -616,5 +654,5 @@ func revertS3MetadataChaos(bucket, prefix string, roleArn, externalId string) {
 			fmt.Printf("Error reverting metadata for %s: %v\n", *obj.Key, err)
 		}
 	}
-	fmt.Printf("✅ Metadata Chaos reverted for bucket %s\n", bucket)
+	fmt.Printf("✅ Metadata Chaos reverted for bucket %s\n", exp.BucketName)
 }
