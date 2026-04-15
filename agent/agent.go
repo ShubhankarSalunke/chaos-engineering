@@ -15,9 +15,19 @@ import (
 	"time"
 )
 
-const CONTROL_PLANE = "http://localhost:8000"
-const POLL_INTERVAL = 5
+var CONTROL_PLANE = "https://kzvijk5asj.execute-api.us-east-1.amazonaws.com/"
+
+const POLL_INTERVAL = 10
 const CMD_TIMEOUT = 10 * time.Second
+
+func init() {
+	if cp := os.Getenv("CONTROL_PLANE"); cp != "" {
+		CONTROL_PLANE = cp
+	}
+	if CONTROL_PLANE == "" {
+		CONTROL_PLANE = "http://localhost:8000"
+	}
+}
 
 var agentLatencyMs int = 0
 var packetLoss float64 = 0.0
@@ -38,6 +48,30 @@ func runCommand(name string, args ...string) ([]byte, error) {
 	}
 
 	return out, nil
+}
+
+func collectSystemMetrics() map[string]interface{} {
+	metrics := make(map[string]interface{})
+
+	// CPU Load
+	if out, err := runCommand("uptime"); err == nil {
+		metrics["uptime"] = string(out)
+	}
+
+	// Memory
+	if out, err := runCommand("free", "-h"); err == nil {
+		metrics["memory"] = string(out)
+	}
+
+	// Disk
+	if out, err := runCommand("df", "-h"); err == nil {
+		metrics["disk"] = string(out)
+	}
+
+	// Timestamp
+	metrics["timestamp"] = time.Now().Format(time.RFC3339)
+
+	return metrics
 }
 
 func containerExists(name string) bool {
@@ -127,17 +161,16 @@ func killContainer(name string, duration int) {
 
 	fmt.Println("Killing container:", name)
 
-	if !containerExists(name) {
-		fmt.Println("Container does not exist:", name)
-		return
-	}
-
+	// if !containerExists(name) {
+	//      fmt.Println("Container does not exist:", name)
+	//      return
+	// }
 	_, err := runCommand("docker", "kill", name)
 	if err != nil {
 		fmt.Println("Kill failed:", err)
 		return
 	}
-
+	fmt.Println("Container killed, sleeping for", duration, "seconds")
 	time.Sleep(time.Duration(duration) * time.Second)
 
 	_, err = runCommand("docker", "start", name)
@@ -219,6 +252,9 @@ func execute(exp map[string]interface{}) {
 
 	fmt.Println("Executing:", id, "Type:", t)
 
+	// Collect pre-experiment metrics
+	preMetrics := collectSystemMetrics()
+
 	switch t {
 
 	case "container_kill":
@@ -258,9 +294,20 @@ func execute(exp map[string]interface{}) {
 		fmt.Println("Unknown experiment:", t)
 	}
 
+	// Collect post-experiment metrics
+	postMetrics := collectSystemMetrics()
+
+	result := map[string]interface{}{
+		"experiment_type": t,
+		"pre_metrics":     preMetrics,
+		"post_metrics":    postMetrics,
+		"executed_at":     time.Now().Format(time.RFC3339),
+	}
+
 	body, _ := json.Marshal(map[string]interface{}{
 		"experiment_id": id,
 		"status":        "completed",
+		"result":        result,
 	})
 
 	http.Post(CONTROL_PLANE+"/result", "application/json", bytes.NewBuffer(body))
@@ -304,11 +351,18 @@ func main() {
 
 	rand.Seed(time.Now().UnixNano())
 
-	reader := bufio.NewReader(os.Stdin)
-
-	fmt.Print("Enter verification token: ")
-	token, _ := reader.ReadString('\n')
-	token = strings.TrimSpace(token)
+	token := os.Getenv("VERIFICATION_TOKEN")
+	if token == "" {
+		reader := bufio.NewReader(os.Stdin)
+		fmt.Print("Enter verification token: ")
+		var err error
+		token, err = reader.ReadString('\n')
+		if err != nil {
+			fmt.Println("Failed to read token:", err)
+			return
+		}
+		token = strings.TrimSpace(token)
+	}
 
 	agentID, userID, err := register(token)
 	if err != nil {

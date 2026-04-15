@@ -105,6 +105,7 @@ func main() {
 	auth.POST("/create-experiment", createExperiment)
 	auth.GET("/agents", getAgents)
 	auth.GET("/experiments", getExperiments)
+	auth.GET("/results", getResults)
 
 	r.Run("0.0.0.0:8000")
 }
@@ -409,6 +410,38 @@ func getExperiments(c *gin.Context) {
 	c.JSON(200, result)
 }
 
+func getResults(c *gin.Context) {
+
+	userID := c.GetString("user_id")
+
+	mapping := readJSON(mappingFile)
+	experiments := readJSON(experimentsFile)
+
+	result := make(map[string]interface{})
+
+	if v, ok := mapping[userID]; ok {
+
+		list := v.([]interface{})
+
+		for _, item := range list {
+
+			m := item.(map[string]interface{})
+			agentID := m["agent_id"].(string)
+
+			for id, expRaw := range experiments {
+
+				exp := expRaw.(map[string]interface{})
+
+				if exp["agent_id"] == agentID && exp["status"] == "completed" {
+					result[id] = exp
+				}
+			}
+		}
+	}
+
+	c.JSON(200, result)
+}
+
 /* =========================
    S3 CHAOS UTILITIES
 ========================= */
@@ -438,26 +471,26 @@ func applyS3AccessDeny(exp ExperimentCreate) {
 	if client == nil {
 		return
 	}
- 
+
 	policy := fmt.Sprintf(`{
-		"Version": "2012-10-17",
-		"Statement": [
-			{
-				"Sid": "DenyReadWriteAccess",
-				"Effect": "Deny",
-				"Principal": "*",
-				"Action": [
-					"s3:GetObject",
-					"s3:PutObject",
-					"s3:ListBucket"
-				],
-				"Resource": [
-					"arn:aws:s3:::%s",
-					"arn:aws:s3:::%s/*"
-				]
-			}
-		]
-	}`, exp.BucketName, exp.BucketName)
+                "Version": "2012-10-17",
+                "Statement": [
+                        {
+                                "Sid": "DenyReadWriteAccess",
+                                "Effect": "Deny",
+                                "Principal": "*",
+                                "Action": [
+                                        "s3:GetObject",
+                                        "s3:PutObject",
+                                        "s3:ListBucket"
+                                ],
+                                "Resource": [
+                                        "arn:aws:s3:::%s",
+                                        "arn:aws:s3:::%s/*"
+                                ]
+                        }
+                ]
+        }`, exp.BucketName, exp.BucketName)
 
 	_, err := client.PutBucketPolicy(context.TODO(), &s3.PutBucketPolicyInput{
 		Bucket: aws.String(exp.BucketName),
@@ -488,7 +521,6 @@ func revertS3AccessDeny(exp ExperimentCreate) {
 		fmt.Printf("✅ S3 Chaos reverted for bucket %s\n", exp.BucketName)
 	}
 }
-
 
 /* =========================
    ADVANCED S3 CHAOS UTILITIES
