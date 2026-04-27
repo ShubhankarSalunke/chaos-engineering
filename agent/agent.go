@@ -120,42 +120,42 @@ func setMemory(container string, bytes int64) error {
 	return err
 }
 
-func memoryStress(container string, memMB int, duration int) {
+// func memoryStress(container string, memMB int, duration int) {
 
-	fmt.Println("Starting memory stress on:", container)
+// 	fmt.Println("Starting memory stress on:", container)
 
-	if !containerExists(container) {
-		fmt.Println("Container does not exist:", container)
-		return
-	}
+// 	if !containerExists(container) {
+// 		fmt.Println("Container does not exist:", container)
+// 		return
+// 	}
 
-	originalMem, err := getMemory(container)
-	if err != nil {
-		fmt.Println("Failed to fetch original memory:", err)
-		return
-	}
+// 	originalMem, err := getMemory(container)
+// 	if err != nil {
+// 		fmt.Println("Failed to fetch original memory:", err)
+// 		return
+// 	}
 
-	fmt.Println("Original memory (MB):", originalMem/(1024*1024))
+// 	fmt.Println("Original memory (MB):", originalMem/(1024*1024))
 
-	_, err = runCommand("docker", "update", "--memory", fmt.Sprintf("%dm", memMB), container)
-	if err != nil {
-		fmt.Println("Failed to apply memory stress:", err)
-		return
-	}
+// 	_, err = runCommand("docker", "update", "--memory", fmt.Sprintf("%dm", memMB), container)
+// 	if err != nil {
+// 		fmt.Println("Failed to apply memory stress:", err)
+// 		return
+// 	}
 
-	time.Sleep(time.Duration(duration) * time.Second)
+// 	time.Sleep(time.Duration(duration) * time.Second)
 
-	for i := 0; i < 3; i++ {
-		err = setMemory(container, originalMem)
-		if err == nil {
-			fmt.Println("Memory restored")
-			return
-		}
-		time.Sleep(2 * time.Second)
-	}
+// 	for i := 0; i < 3; i++ {
+// 		err = setMemory(container, originalMem)
+// 		if err == nil {
+// 			fmt.Println("Memory restored")
+// 			return
+// 		}
+// 		time.Sleep(2 * time.Second)
+// 	}
 
-	fmt.Println("Failed to restore memory")
-}
+// 	fmt.Println("Failed to restore memory")
+// }
 
 func killContainer(name string, duration int) {
 
@@ -263,26 +263,26 @@ func execute(exp map[string]interface{}) {
 			int(exp["duration"].(float64)),
 		)
 
-	case "memory_stress":
-		memoryStress(
-			exp["target_container"].(string),
-			int(exp["memory_mb"].(float64)),
-			int(exp["duration"].(float64)),
-		)
+	// case "memory_stress":
+	// 	memoryStress(
+	// 		exp["target_container"].(string),
+	// 		int(exp["memory_mb"].(float64)),
+	// 		int(exp["duration"].(float64)),
+	// 	)
 
-	case "cpu_stress_instance":
+	case "cpu_stress":
 		cpuStressInstance(
-			int(exp["cpu_cores"].(float64)),
+			int(exp["cpu_percent"].(float64)),
 			int(exp["duration"].(float64)),
 		)
 
-	case "memory_stress_instance":
+	case "memory_stress":
 		memoryStressInstance(
 			int(exp["memory_mb"].(float64)),
 			int(exp["duration"].(float64)),
 		)
 
-	case "network_latency_instance":
+	case "network_latency":
 		agentLatencyMs = int(exp["latency_ms"].(float64))
 		fmt.Println("Set agent latency:", agentLatencyMs)
 
