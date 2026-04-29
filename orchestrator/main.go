@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -87,6 +88,8 @@ func hashToken(token string) string {
 ========================= */
 
 func main() {
+
+	rand.Seed(time.Now().UnixNano())
 
 	r := gin.Default()
 	r.Use(cors.Default())
@@ -264,7 +267,7 @@ func createExperiment(c *gin.Context) {
 		return
 	}
 
-	if exp.Type == "" || exp.Duration <= 0 {
+	if exp.Type == "" || (exp.Duration <= 0 && exp.Type != "s3_object_delete") {
 		c.JSON(400, gin.H{"error": "type and duration are required"})
 		return
 	}
@@ -321,6 +324,9 @@ func createExperiment(c *gin.Context) {
 		if exp.BucketName == "" {
 			c.JSON(400, gin.H{"error": "bucket_name required"})
 			return
+		}
+		if exp.DeletePercent <= 0 || exp.DeletePercent > 100 {
+			exp.DeletePercent = 10 // default 10%
 		}
 
 		go func() {
@@ -472,6 +478,11 @@ func applyS3AccessDeny(exp ExperimentCreate) {
 		return
 	}
 
+	// Note: This policy denies access to the bucket for all principals.
+	// Ensure the provided AWS credentials have s3:DeleteBucketPolicy permission
+	// to allow the orchestrator to revert the policy after the duration.
+	// If the credentials lack this permission, the revert will fail and the bucket will remain inaccessible.
+
 	policy := fmt.Sprintf(`{
                 "Version": "2012-10-17",
                 "Statement": [
@@ -604,7 +615,7 @@ func applyS3DeleteChaos(exp ExperimentCreate) {
 
 	for _, obj := range list.Contents {
 
-		if time.Now().UnixNano()%100 < int64(exp.DeletePercent) {
+		if rand.Intn(100) < exp.DeletePercent {
 
 			_, err := client.DeleteObject(context.TODO(), &s3.DeleteObjectInput{
 				Bucket: aws.String(exp.BucketName),
@@ -657,34 +668,7 @@ func applyS3MetadataChaos(exp ExperimentCreate) {
 }
 
 func revertS3MetadataChaos(exp ExperimentCreate) {
-	// Reversion: In this simple version we just set it to application/octet-stream
-	client := getS3Client(exp)
-	if client == nil {
-		return
-	}
-
-	list, err := client.ListObjectsV2(context.TODO(), &s3.ListObjectsV2Input{
-		Bucket: aws.String(exp.BucketName),
-		Prefix: aws.String(exp.Prefix),
-	})
-
-	if err != nil {
-		return
-	}
-
-	for _, obj := range list.Contents {
-
-		_, err := client.CopyObject(context.TODO(), &s3.CopyObjectInput{
-			Bucket:            aws.String(exp.BucketName),
-			Key:               obj.Key,
-			CopySource:        aws.String(fmt.Sprintf("%s/%s", exp.BucketName, *obj.Key)),
-			ContentType:       aws.String("application/octet-stream"),
-			MetadataDirective: types.MetadataDirectiveReplace,
-		})
-
-		if err != nil {
-			fmt.Printf("Error reverting metadata for %s: %v\n", *obj.Key, err)
-		}
-	}
-	fmt.Printf("✅ Metadata Chaos reverted for bucket %s\n", exp.BucketName)
+	// Reversion: Currently not implemented properly - original content-types not preserved
+	// For now, we leave the corrupted metadata as is
+	fmt.Printf("✅ Metadata Chaos applied (no revert implemented)\n", exp.BucketName)
 }
